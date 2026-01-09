@@ -30,6 +30,8 @@ func newFFmpegProcess(outputDir string, opts Options) (*ffmpegProcess, error) {
 	outputPath := outputDir + "/stream.m3u8"
 
 	args := []string{
+		"-y",             // Overwrite output files
+		"-loglevel", "warning", // Reduce log noise
 		"-f", "rawvideo",
 		"-pix_fmt", "rgba",
 		"-s", resolution,
@@ -43,6 +45,7 @@ func newFFmpegProcess(outputDir string, opts Options) (*ffmpegProcess, error) {
 		"-hls_time", segmentDuration,
 		"-hls_list_size", "5",
 		"-hls_flags", "delete_segments",
+		"-hls_segment_type", "mpegts",
 		outputPath,
 	}
 
@@ -53,11 +56,51 @@ func newFFmpegProcess(outputDir string, opts Options) (*ffmpegProcess, error) {
 		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
 
+	// Capture stderr for debugging
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		stdin.Close()
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Capture stdout (must be before Start)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		stdin.Close()
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
 	// Start the process
 	if err := cmd.Start(); err != nil {
 		stdin.Close()
 		return nil, fmt.Errorf("failed to start ffmpeg: %w", err)
 	}
+
+	// Drain stderr in background to prevent blocking
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stderr.Read(buf)
+			if err != nil {
+				return
+			}
+			// Optionally log ffmpeg errors
+			if n > 0 {
+				// fmt.Printf("[ffmpeg] %s", buf[:n])
+			}
+		}
+	}()
+
+	// Drain stdout in background
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			_, err := stdout.Read(buf)
+			if err != nil {
+				return
+			}
+		}
+	}()
 
 	return &ffmpegProcess{
 		cmd:       cmd,

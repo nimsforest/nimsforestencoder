@@ -6,7 +6,9 @@ import (
 	"image"
 	"image/draw"
 	"os"
+	"path/filepath"
 	"sync"
+	"time"
 )
 
 // Encoder encodes image frames to HLS stream.
@@ -194,4 +196,39 @@ func (e *Encoder) URL() string {
 		return e.hlsServer.URL()
 	}
 	return ""
+}
+
+// WaitReady waits for the HLS stream to be ready (first segment created).
+// Returns an error if the timeout is exceeded or context is cancelled.
+func (e *Encoder) WaitReady(ctx context.Context, timeout time.Duration) error {
+	e.mu.Lock()
+	outputDir := e.outputDir
+	e.mu.Unlock()
+
+	if outputDir == "" {
+		return fmt.Errorf("encoder not started")
+	}
+
+	m3u8Path := filepath.Join(outputDir, "stream.m3u8")
+	deadline := time.Now().Add(timeout)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for HLS stream to be ready")
+		}
+
+		// Check if m3u8 file exists and has content
+		info, err := os.Stat(m3u8Path)
+		if err == nil && info.Size() > 0 {
+			return nil
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
 }
