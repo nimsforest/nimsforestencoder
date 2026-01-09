@@ -88,5 +88,18 @@ func (h *hlsServer) Port() int {
 
 // URL returns the full URL to the HLS playlist.
 func (h *hlsServer) URL() string {
-	return fmt.Sprintf("http://localhost:%d/stream.m3u8", h.actualPort)
+	ip := getOutboundIP()
+	return fmt.Sprintf("http://%s:%d/stream.m3u8", ip, h.actualPort)
+}
+
+// getOutboundIP gets the preferred outbound IP address
+func getOutboundIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "localhost"
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String()
 }
